@@ -11,9 +11,7 @@ import os
 import math
 import json
 import sys
-
-#from tensorflow_addons.layers import SpectralNormalization
-# Import necessary PyFlink components
+#PyFlink libraries for real-time streaming
 from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.datastream.connectors.kafka import KafkaSource, KafkaSink
 from pyflink.common import Types

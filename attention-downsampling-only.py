@@ -47,19 +47,20 @@ def load_ecg200(train_file_path, test_file_path):
 class DownsampleTransformerBlock(layers.Layer):
     def __init__(self, embed_dim, num_heads, ff_dim, rate=0.2, **kwargs):
         super(DownsampleTransformerBlock, self).__init__(**kwargs)
+        self.embed_dim = embed_dim
         self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim // num_heads, dropout=0.1)
+        self.local_att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim // num_heads, dropout=0.1)
         self.ffn = keras.Sequential(
-            [layers.Dense(ff_dim, activation="relu", kernel_regularizer=regularizers.l2(0.01)),
-             layers.Dense(embed_dim, kernel_regularizer=regularizers.l2(0.01))]
+            [layers.Dense(ff_dim, activation="relu", kernel_regularizer=regularizers.l2(0.02)),
+             layers.Dense(embed_dim, kernel_regularizer=regularizers.l2(0.02))]
         )
         self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm3 = layers.LayerNormalization(epsilon=1e-6)
         self.dropout1 = layers.Dropout(rate)
         self.dropout2 = layers.Dropout(rate)
-        self.conv = layers.Conv1D(
-            filters=embed_dim, kernel_size=3, strides=2, padding='same', activation='relu',
-            kernel_regularizer=regularizers.l2(0.01)
-        )
+        self.dropout3 = layers.Dropout(rate)
+        self.importance_scorer = layers.Dense(1, activation='sigmoid', kernel_regularizer=regularizers.l2(0.02))
         self.bn = layers.BatchNormalization()
 
     def call(self, inputs, training=None):
@@ -69,18 +70,35 @@ class DownsampleTransformerBlock(layers.Layer):
         attn_output = self.dropout1(attn_output, training=training)
         out1 = inputs + attn_output
         norm2 = self.layernorm2(out1)
-        ffn_output = self.ffn(norm2)
-        ffn_output = self.dropout2(ffn_output, training=training)
-        out2 = out1 + ffn_output
-        conv_output = self.conv(out2)
-        downsampled_output = self.bn(conv_output, training=training)
-        print(f"After Conv1D and BN: {downsampled_output.shape}")
+        local_attn_output = self.local_att(norm2, norm2)
+        local_attn_output = self.dropout2(local_attn_output, training=training)
+        out2 = out1 + local_attn_output
+        norm3 = self.layernorm3(out2)
+        ffn_output = self.ffn(norm3)
+        ffn_output = self.dropout3(ffn_output, training=training)
+        out3 = out2 + ffn_output
+        importance_scores = self.importance_scorer(out3)
+        importance_scores = self.dropout3(importance_scores, training=training)
+        reduced_seq_len = tf.shape(out3)[1] // 2
+        reduced_seq_len = tf.maximum(reduced_seq_len, 1)  # Ensure at least 1
+        top_k_indices = tf.math.top_k(tf.squeeze(importance_scores, axis=-1), k=reduced_seq_len)[1]
+        top_k_indices = tf.sort(top_k_indices, axis=-1)
+        downsampled_output = tf.gather(out3, top_k_indices, batch_dims=1)
+        downsampled_output = self.bn(downsampled_output, training=training)
+        print(f"After attention-based downsampling and BN: {downsampled_output.shape}")
         return downsampled_output
+
+    def compute_output_shape(self, input_shape):
+        # Input shape: (batch, seq_len, embed_dim)
+        seq_len = input_shape[1]
+        reduced_seq_len = seq_len // 2 if seq_len is not None else None
+        reduced_seq_len = max(reduced_seq_len, 1) if reduced_seq_len is not None else None
+        return (input_shape[0], reduced_seq_len, self.embed_dim)
 
     def get_config(self):
         config = super(DownsampleTransformerBlock, self).get_config()
         config.update({
-            'embed_dim': self.ffn.layers[1].units,
+            'embed_dim': self.embed_dim,
             'num_heads': self.att.num_heads,
             'ff_dim': self.ffn.layers[0].units,
             'rate': self.dropout1.rate,
@@ -128,7 +146,7 @@ def build_detail_transformer(input_seq_len, embed_dim, num_heads, ff_dim, num_tr
     print(f"build_detail_transformer: input_seq_len={input_seq_len}, output_seq_len={output_seq_len}")
     x = layers.Conv1D(filters=1, kernel_size=1, padding='same')(x)
     x = layers.Flatten()(x)
-    x = layers.Dense(output_seq_len, kernel_regularizer=regularizers.l2(0.01))(x)
+    x = layers.Dense(output_seq_len, kernel_regularizer=regularizers.l2(0.02))(x)
     model = keras.Model(inputs=inputs, outputs=x)
     return model
 
@@ -301,7 +319,7 @@ def main():
     decomposition_mode = 'symmetric'
     batch_size = 128
     epochs = 250
-    learning_rate = 0.0001
+    learning_rate = 0.00005
 
     X_train, y_train, X_test, y_test = load_ecg200(train_file, test_file)
     data_mean = np.mean(X_train, axis=0)
@@ -309,7 +327,6 @@ def main():
     X_train_normalized = (X_train - data_mean) / data_std
     X_test_normalized = (X_test - data_mean) / data_std
 
-    # Data augmentation
     X_train_augmented = augment_data(X_train_normalized)
     X_train_mixed, y_train_mixed = mixup_data(X_train_normalized, X_train_normalized)
     print(f"X_train_normalized shape: {X_train_normalized.shape}")
@@ -317,7 +334,6 @@ def main():
     print(f"X_train_mixed shape: {X_train_mixed.shape}")
     X_train_combined = np.concatenate([X_train_normalized, X_train_augmented, X_train_mixed], axis=0)
 
-    # Create target downsampled representations for training
     detail_transformer = build_detail_transformer(signal_coeffs_len, embed_dim, num_heads, ff_dim, num_transformer_blocks)
     model = WaveletDownsamplingModel(
         detail_transformer_model=detail_transformer,
@@ -330,11 +346,10 @@ def main():
         decomposition_mode=decomposition_mode
     )
 
-    # Compute target downsampled representations
     y_train_combined = model.call(X_train_combined, training=False)
     y_test_normalized = model.call(X_test_normalized, training=False)
 
-    optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=1.0)
+    optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=0.5)
     print(f"Optimizer type before compile: {type(optimizer)}")
     model.compile(optimizer=optimizer, loss=downsampling_loss)
     print(f"Optimizer type after compile: {type(model.optimizer)}")
@@ -342,11 +357,10 @@ def main():
     model.build(input_shape=(None, original_length))
     model.summary(line_length=150)
 
-    # Callbacks
     early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True, verbose=1)
-    lr_scheduler = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-6, verbose=1)
+    lr_scheduler = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-7, verbose=1)
 
-    print("--- Training Wavelet Downsampling Model for 150 epochs ---")
+    print("--- Training Wavelet Downsampling Model for 250 epochs ---")
     history = model.fit(
         X_train_combined, y_train_combined,
         epochs=epochs,
@@ -370,7 +384,6 @@ def main():
     model.save('downsampling_model.keras')
     detail_transformer.save('detail_transformer_model.keras')
 
-    # Plotting
     plt.figure(figsize=(18, 4))
     plt.subplot(1, 3, 1)
     plt.plot(history.history['loss'], label='Train Loss')
