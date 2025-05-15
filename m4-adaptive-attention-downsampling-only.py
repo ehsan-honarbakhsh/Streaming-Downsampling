@@ -27,7 +27,7 @@ def get_wavedec_coeff_lengths(signal_length, wavelet, level, mode='symmetric'):
     return len_cA, len_cD
 
 # Updated function to load M4 Daily train and test data
-def load_m4_daily(train_file_path, test_file_path, max_length=96):
+def load_m4_daily(train_file_path, test_file_path, max_length=150):
     """
     Load M4 Daily dataset from Daily-train.csv and Daily-test.csv.
     
