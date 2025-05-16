@@ -448,11 +448,11 @@ def main():
     embed_dim = 64
     num_heads = 8  # Ensures embed_dim // num_heads is an integer (64 // 8 = 8)
     ff_dim = 64
-    num_transformer_blocks = 3
+    num_transformer_blocks = 4
     wavelet_name = 'db4'
     dwt_level = 1
     approx_ds_factor = 2
-    original_length = 96  # Fixed to match ECG200; can be adjusted dynamically
+    original_length = 150  # Fixed to match ECG200; can be adjusted dynamically
     len_cA, signal_coeffs_len = get_wavedec_coeff_lengths(original_length, wavelet_name, dwt_level, 'symmetric')
     print(f"Computed signal_coeffs_len: {signal_coeffs_len}")
     normalize_details = True

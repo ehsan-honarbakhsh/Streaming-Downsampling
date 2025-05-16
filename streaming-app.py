@@ -45,9 +45,7 @@ def get_wavedec_coeff_lengths(signal_length, wavelet, level, mode='symmetric'):
 
 def load_ecg200(train_file_path, test_file_path):
     if not os.path.exists(train_file_path) or not os.path.exists(test_file_path):
-        print(f"ECG200 dataset files not found at: {train_file_path} or {test_file_path}")
-        print("Please download from http://www.timeseriesclassification.com/Downloads/ECG200.zip")
-        print("And place ECG200_TRAIN.txt and ECG200_TEST.txt in the specified paths.")
+        print(f"dataset files not found at: {train_file_path} or {test_file_path}")
         raise FileNotFoundError("Dataset files missing.")
 
     train_data = pd.read_csv(train_file_path, sep=r'\s+', header=None, engine='python')
