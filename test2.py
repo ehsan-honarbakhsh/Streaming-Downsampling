@@ -341,7 +341,10 @@ class WaveletDownsamplingModel(keras.Model):
         detail_coeffs_reshaped = tf.expand_dims(detail_coeffs, axis=-1)
         print(f"detail_coeffs_reshaped shape: {detail_coeffs_reshaped.shape}")
         if self.normalize_details:
-            detail_coeffs_reshaped = self.detail_norm_layer(detail_coeffs_reshaped, training=training)
+            detail_norm_layer = getattr(self, 'detail_norm_layer', None)
+            if detail_norm_layer is None:
+                raise ValueError("detail_norm_layer is None but normalize_details is True")
+            detail_coeffs_reshaped = detail_norm_layer(detail_coeffs_reshaped, training=training)
         print(f"detail_transformer type: {type(self.detail_transformer)}")
         print(f"detail_transformer callable: {callable(self.detail_transformer)}")
         if self.detail_transformer is None:
@@ -532,7 +535,8 @@ def main():
     input_topic = 'm4-input-topic'
     
     # Stream training and test data
-    print("Streaming M4 dataset to Kafka topic:", input_topic)
+    total_series = len(X_train_normalized) + len(X_test_normalized)
+    print(f"Streaming {total_series} series to Kafka topic: {input_topic}")
     for idx, series in enumerate(np.concatenate([X_train_normalized, X_test_normalized], axis=0)):
         producer.send(input_topic, key=str(idx), value=series.tolist())
         if idx % 100 == 0:
@@ -588,6 +592,7 @@ def main():
     
     # Process Stream: Deserialize JSON and pass through model
     _model_instance = [None]  # Use a list to allow modification in nested function
+    processed_count = [0]  # Counter for processed elements
     def _get_model():
         if _model_instance[0] is None:
             print("Loading model in _get_model")
@@ -604,7 +609,13 @@ def main():
 
     def process_element(element):
         try:
-            print(f"process_element: element type={type(element)}, element={element[:50]}...")
+            processed_count[0] += 1
+            print(f"Processing element {processed_count[0]}")
+            print(f"process_element: element type={type(element)}, element={str(element)[:50]}...")
+            
+            # Stop pipeline after processing total_series elements
+            if processed_count[0] > total_series:
+                raise StopIteration(f"Reached {total_series} elements")
             
             # Ensure element is a list of floats
             if isinstance(element, str):
@@ -642,6 +653,8 @@ def main():
             
             # Convert to list for JSON serialization
             return json.dumps(downsampled.numpy().flatten().tolist())
+        except StopIteration:
+            raise
         except Exception as e:
             print(f"Error processing element: {e}")
             return json.dumps([])  # Empty output on error
@@ -659,8 +672,16 @@ def main():
     
     processed_stream.sink_to(kafka_sink)
     
-    print("Executing Flink pipeline...")
-    env.execute("M4 Downsampling Pipeline")
+    print(f"Executing Flink pipeline to process {total_series} elements...")
+    try:
+        env.execute("M4 Downsampling Pipeline")
+    except Exception as e:
+        if "StopIteration" in str(e):
+            print(f"Pipeline stopped after processing {processed_count[0] - 1} elements")
+        else:
+            raise
+    
+    print(f"Processed {processed_count[0] - 1} elements")
     
     # Data augmentation
     X_train_augmented = augment_data(X_train_normalized)
