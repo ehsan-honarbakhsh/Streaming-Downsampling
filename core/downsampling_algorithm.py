@@ -24,12 +24,15 @@ def get_wavedec_coeff_lengths(signal_length, wavelet, level, mode='symmetric'):
 
 @keras.saving.register_keras_serializable()
 class DownsampleTransformerBlock(layers.Layer):
-    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.3, **kwargs):
+    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.3, retention_rate=0.5, **kwargs):
         super(DownsampleTransformerBlock, self).__init__(**kwargs)
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.ff_dim = ff_dim
         self.rate = rate
+        self.retention_rate = retention_rate  # New parameter: fraction of sequence to retain
+        if not 0 < retention_rate <= 1:
+            raise ValueError("retention_rate must be between 0 and 1")
         self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim // num_heads, dropout=0.1)
         self.local_att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim // num_heads, dropout=0.1)
         self.ffn = keras.Sequential(
@@ -88,7 +91,9 @@ class DownsampleTransformerBlock(layers.Layer):
         importance_scores_squeezed = tf.squeeze(importance_scores, axis=-1)
         print(f"Importance scores squeezed shape: {importance_scores_squeezed.shape}")
         tf.ensure_shape(importance_scores_squeezed, [None, None])
-        reduced_seq_len = tf.shape(out3)[1] // 2
+        # Dynamic retention rate calculation
+        seq_len = tf.shape(out3)[1]
+        reduced_seq_len = tf.cast(tf.round(tf.cast(seq_len, tf.float32) * self.retention_rate), tf.int32)
         reduced_seq_len = tf.maximum(reduced_seq_len, 1)
         top_k_indices = tf.math.top_k(importance_scores_squeezed, k=reduced_seq_len)[1]
         print(f"Top k indices shape: {top_k_indices.shape}")
@@ -108,9 +113,11 @@ class DownsampleTransformerBlock(layers.Layer):
         return downsampled_output, top_k_indices
 
     def compute_output_shape(self, input_shape):
-        seq_len = input_shape[1]
-        reduced_seq_len = seq_len // 2 if seq_len is not None else None
-        reduced_seq_len = max(reduced_seq_len, 1) if reduced_seq_len is not None else None
+        if input_shape[1] is None:
+            reduced_seq_len = None
+        else:
+            seq_len = input_shape[1]
+            reduced_seq_len = max(1, int(round(seq_len * self.retention_rate)))
         return [(input_shape[0], reduced_seq_len, self.embed_dim), (input_shape[0], reduced_seq_len)]
 
     def get_config(self):
@@ -120,6 +127,7 @@ class DownsampleTransformerBlock(layers.Layer):
             'num_heads': self.num_heads,
             'ff_dim': self.ff_dim,
             'rate': self.rate,
+            'retention_rate': self.retention_rate,  # Include in serialization
         })
         return config
 
@@ -167,9 +175,12 @@ class TimeSeriesEmbedding(layers.Layer):
         value_embeddings = value_embeddings + self.bias
         value_embeddings = tf.ensure_shape(value_embeddings, [None, self.maxlen, self.embed_dim])
         print(f"Value embeddings shape: {value_embeddings.shape}")
-        output = value_embeddings
+        # Add positional encodings
+        pos_encoding = self.get_sinusoidal_pos_encoding(self.maxlen, self.embed_dim)
+        pos_encoding = tf.ensure_shape(pos_encoding, [1, self.maxlen, self.embed_dim])
+        output = value_embeddings + pos_encoding
         output = tf.ensure_shape(output, [None, self.maxlen, self.embed_dim])
-        print(f"TimeSeriesEmbedding output shape: {output.shape}")
+        print(f"TimeSeriesEmbedding output shape after positional encoding: {output.shape}")
         return output
 
     def compute_output_shape(self, input_shape):
@@ -183,7 +194,7 @@ class TimeSeriesEmbedding(layers.Layer):
         })
         return config
 
-def build_detail_transformer(input_seq_len, embed_dim, num_heads, ff_dim, num_transformer_blocks=3):
+def build_detail_transformer(input_seq_len, embed_dim, num_heads, ff_dim, num_transformer_blocks=3, retention_rate=0.5):
     inputs = layers.Input(shape=(input_seq_len, 1))
     x = TimeSeriesEmbedding(maxlen=input_seq_len, embed_dim=embed_dim)(inputs)
     print(f"After TimeSeriesEmbedding: {x.shape}")
@@ -195,13 +206,12 @@ def build_detail_transformer(input_seq_len, embed_dim, num_heads, ff_dim, num_tr
     all_indices = []
     for i in range(num_transformer_blocks):
         print(f"Before DownsampleTransformerBlock {i+1}: {x.shape}")
-        layer_output = DownsampleTransformerBlock(embed_dim, num_heads, ff_dim, rate=0.3)(x)
+        layer_output = DownsampleTransformerBlock(embed_dim, num_heads, ff_dim, rate=0.3, retention_rate=retention_rate)(x)
         x = layer_output[0]
         all_indices.append(layer_output[1])
         print(f"After DownsampleTransformerBlock {i+1}: {x.shape}")
-    output_seq_len = input_seq_len // (2 ** num_transformer_blocks)
-    if output_seq_len < 1:
-        output_seq_len = 1
+    output_seq_len = int(input_seq_len * (retention_rate ** num_transformer_blocks))
+    output_seq_len = max(output_seq_len, 1)
     print(f"build_detail_transformer: input_seq_len={input_seq_len}, output_seq_len={output_seq_len}")
     x = layers.Conv1D(filters=1, kernel_size=1, padding='same')(x)
     print(f"After Conv1D: {x.shape}")

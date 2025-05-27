@@ -12,9 +12,9 @@ KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
 OUTPUT_TOPIC = 'm4-downsampled-topic'
 CONSUMER_GROUP = 'visualization-group'
 EXPECTED_DOWNsampled_LENGTH = 43  # Adjust based on model output
-MAX_SERIES = 10
+MAX_SERIES = 15
 POLL_TIMEOUT_MS = 100
-UPDATE_INTERVAL_MS = 100
+UPDATE_INTERVAL_MS = 10
 
 # Buffer for downsampled series
 recent_series = deque(maxlen=MAX_SERIES)
