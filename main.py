@@ -274,6 +274,7 @@ def stream_pipeline(args):
     num_transformer_blocks = 2
     wavelet_name = 'db4'
     dwt_level = 1
+    retention_rate = 0.8
     approx_ds_factor = 2
     original_length = 150
     len_cA, signal_coeffs_len = get_wavedec_coeff_lengths(original_length, wavelet_name, dwt_level, 'symmetric')
@@ -293,7 +294,9 @@ def stream_pipeline(args):
 
     # Build model
     logger.info("Building detail_transformer")
-    detail_transformer = build_detail_transformer(signal_coeffs_len, embed_dim, num_heads, ff_dim, num_transformer_blocks)
+    detail_transformer = build_detail_transformer(
+        signal_coeffs_len, embed_dim, num_heads, ff_dim, num_transformer_blocks, retention_rate=retention_rate
+    )
     logger.info("Building WaveletDownsamplingModel")
     model = WaveletDownsamplingModel(
         detail_transformer_model=detail_transformer,

@@ -261,9 +261,10 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
                 del chunk
                 gc.collect()
 
-            if not result or len(result) != 58:
-                logger.error(f"Unexpected result length: {len(result)}, expected 58")
+            if not result:
+                logger.error("Result is empty")
                 return json.dumps([])
+            logger.info(f"Downsampled output length: {len(result)}")
             logger.info(f"Serializing result: first 5 values={result[:5]}, length={len(result)}")
             serialized = json.dumps(result, allow_nan=False)
             logger.info(f"Completed processing element {process_element.count}")
