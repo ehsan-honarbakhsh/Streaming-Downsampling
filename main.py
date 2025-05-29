@@ -13,7 +13,6 @@ import logging
 from core.downsampling_algorithm import WaveletDownsamplingModel, TimeSeriesEmbedding, DownsampleTransformerBlock, get_wavedec_coeff_lengths, downsampling_loss, build_detail_transformer
 from core.streaming_pipeline import setup_streaming_pipeline
 
-# Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -27,7 +26,7 @@ def load_m4_daily(train_file_path, test_file_path, max_length=150):
     if not os.path.exists(train_file_path) or not os.path.exists(test_file_path):
         raise FileNotFoundError(f"M4 Daily dataset files not found at: {train_file_path} or {test_file_path}")
 
-    # Load training data
+    # Loading training data
     train_df = pd.read_csv(train_file_path)
     X_train = []
     for _, row in train_df.iterrows():
@@ -39,7 +38,7 @@ def load_m4_daily(train_file_path, test_file_path, max_length=150):
         X_train.append(series)
     X_train = np.array(X_train)
 
-    # Load test data
+    # Loading test data
     test_df = pd.read_csv(test_file_path)
     X_test = []
     for _, row in test_df.iterrows():
@@ -70,7 +69,7 @@ def mixup_data(X, y, alpha=0.2):
     return X_mixed, y_mixed
 
 def non_stream_pipeline(args):
-    # Configuration
+   
     embed_dim = 64
     num_heads = 8
     ff_dim = 64
@@ -79,25 +78,24 @@ def non_stream_pipeline(args):
     dwt_level = 1
     retention_rate = 0.8
     approx_ds_factor = 2
-    original_length = 150
+    original_length = 200
     len_cA, signal_coeffs_len = get_wavedec_coeff_lengths(original_length, wavelet_name, dwt_level, 'symmetric')
     normalize_details = True
     decomposition_mode = 'symmetric'
     batch_size = 32
-    epochs = 1
+    epochs = 10
     learning_rate = 0.0001
 
-    # Monitor memory usage
+    #monitoring memory usage
     logger.info(f"Memory usage before model build: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
-    # Test TimeSeriesEmbedding
     logger.info("Testing TimeSeriesEmbedding with dummy input...")
     dummy_input = tf.zeros((25, signal_coeffs_len, 1))
     embedding_layer = TimeSeriesEmbedding(maxlen=signal_coeffs_len, embed_dim=embed_dim)
     dummy_output = embedding_layer(dummy_input)
     logger.info(f"Dummy TimeSeriesEmbedding output shape: {dummy_output.shape}")
 
-    # Load and normalize data
+
     X_train, X_test = load_m4_daily(args.train_file, args.test_file, max_length=original_length)
     data_mean = np.nanmean(X_train, axis=0)
     data_std = np.nanstd(X_train, axis=0)
@@ -105,7 +103,7 @@ def non_stream_pipeline(args):
     X_train_normalized = np.where(np.isnan(X_train), 0, (X_train - data_mean) / data_std)
     X_test_normalized = np.where(np.isnan(X_test), 0, (X_test - data_mean) / data_std)
 
-    # Build model
+    #building the model
     detail_transformer = build_detail_transformer(
         signal_coeffs_len, embed_dim, num_heads, ff_dim, num_transformer_blocks, retention_rate=retention_rate
     )
@@ -123,19 +121,19 @@ def non_stream_pipeline(args):
 
     logger.info(f"Memory usage after model build: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
-    # Data augmentation
+    #Data augmentation
     X_train_augmented = augment_data(X_train_normalized)
     X_train_mixed, _ = mixup_data(X_train_normalized, X_train_normalized)
     X_train_combined = np.concatenate([X_train_normalized, X_train_augmented, X_train_mixed], axis=0)
     logger.info(f"X_train_combined shape: {X_train_combined.shape}")
 
-    # Generate targets
+    #Generate targets
     y_train_combined = model.call(X_train_combined, training=False, return_indices=False)
     y_test_normalized = model.call(X_test_normalized, training=False, return_indices=False)
     logger.info(f"y_train_combined shape: {y_train_combined.shape}")
     logger.info(f"y_test_normalized shape: {y_test_normalized.shape}")
 
-    # Compile and train model
+    #Compile and trainign the model
     optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=0.5)
     model.compile(optimizer=optimizer, loss=downsampling_loss)
     logger.info("Wavelet Downsampling Model Summary:")
@@ -154,26 +152,26 @@ def non_stream_pipeline(args):
         verbose=1
     )
 
-    # Evaluate model
+    #Evaluating the model
     logger.info("Evaluating Model")
     mse_train = mean_squared_error(y_train_combined.numpy(), model.predict(X_train_combined, verbose=0))
     mse_test = mean_squared_error(y_test_normalized.numpy(), model.predict(X_test_normalized, verbose=0))
     logger.info(f"Train MSE: {mse_train}, Test MSE: {mse_test}")
 
-    # Downsampled example
+    #Downsampled example for representation
     logger.info("Downsampled Representation Example")
     sample_input = X_test_normalized[:10]
     downsampled_representation, indices_list = model.call(sample_input, training=False, return_indices=True)
     logger.info(f"Downsampled Representation Shape: {downsampled_representation.shape}")
 
-    # Save models
+    #Saving the models
     logger.info("Saving Models")
     model.save('downsampling_model.keras')
     detail_transformer.save('detail_transformer_model.keras')
 
-    # Statistical evaluation
+    #Statistical evaluation
     logger.info("Statistical Evaluation of Downsampled Representation")
-    original_signal = X_test_normalized[1]
+    original_signal = X_test_normalized[5]
     downsampled_signal = model.call(X_test_normalized[:1], training=False, return_indices=False)[0].numpy()
     _, indices_list = model.call(X_test_normalized[:1], training=False, return_indices=True)
     approx_indices = indices_list[0][0].numpy()
@@ -188,7 +186,7 @@ def non_stream_pipeline(args):
     logger.info(f"Selected indices: {selected_indices}")
     logger.info(f"Selected values shape: {selected_values.shape}")
 
-    # Reconstruct signal
+    #Reconstructing of yhe signal
     x_full = np.arange(original_length)
     sorted_idx = np.argsort(selected_indices)
     sorted_indices = selected_indices[sorted_idx]
@@ -203,7 +201,7 @@ def non_stream_pipeline(args):
     reconstructed_signal = interpolator(x_full)
     logger.info(f"Reconstructed signal shape: {reconstructed_signal.shape}")
 
-    # Compute metrics
+    #Compute metrics
     mse = mean_squared_error(original_signal, reconstructed_signal)
     rmse = np.sqrt(mse)
     mae = mean_absolute_error(original_signal, reconstructed_signal)
@@ -220,7 +218,7 @@ def non_stream_pipeline(args):
     logger.info(f"Pearson correlation coefficient: {correlation:.6f}")
     logger.info(f"Spectral MSE (frequency domain): {spectral_mse:.6f}")
 
-    # Plot results
+    #Plotting the results
     plt.figure(figsize=(18, 10))
     plt.subplot(3, 2, 1)
     plt.plot(history.history['loss'], label='Train Loss')
@@ -267,11 +265,11 @@ def non_stream_pipeline(args):
     plt.close()
 
 def stream_pipeline(args):
-    # Configuration
-    embed_dim = 8  # Reduced from 16
-    num_heads = 1  # Reduced from 2
-    ff_dim = 8     # Reduced from 16
-    num_transformer_blocks = 2
+
+    embed_dim = 64  
+    num_heads = 8 
+    ff_dim = 64    
+    num_transformer_blocks = 4
     wavelet_name = 'db4'
     dwt_level = 1
     retention_rate = 0.8
@@ -281,10 +279,10 @@ def stream_pipeline(args):
     normalize_details = True
     decomposition_mode = 'symmetric'
 
-    # Monitor memory usage
+    #Monitoring memory usage
     logger.info(f"Memory usage before model build: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
-    # Load data for streaming
+    #Load data for streaming
     X_train, X_test = load_m4_daily(args.train_file, args.test_file, max_length=original_length)
     data_mean = np.nanmean(X_train, axis=0)
     data_std = np.nanstd(X_train, axis=0)
@@ -292,7 +290,7 @@ def stream_pipeline(args):
     X_train_normalized = np.where(np.isnan(X_train), 0, (X_train - data_mean) / data_std)
     X_test_normalized = np.where(np.isnan(X_test), 0, (X_test - data_mean) / data_std)
 
-    # Build model
+    #Building the model
     logger.info("Building detail_transformer")
     detail_transformer = build_detail_transformer(
         signal_coeffs_len, embed_dim, num_heads, ff_dim, num_transformer_blocks, retention_rate=retention_rate
@@ -312,7 +310,6 @@ def stream_pipeline(args):
 
     logger.info(f"Memory usage after model build: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
-    # Test model
     logger.info("Testing model with sample input")
     sample_input = X_test_normalized[:1].reshape(1, original_length, 1)
     try:
@@ -325,7 +322,7 @@ def stream_pipeline(args):
         logger.error(f"Model test failed: {e}")
         raise
 
-    # Run streaming pipeline
+    # Running streaming pipeline
     logger.info("Running Streaming Pipeline")
     setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, original_length, input_topic='m4-input-topic', output_topic='m4-downsampled-topic')
 
@@ -339,7 +336,7 @@ def main():
     keras.utils.set_random_seed(42)
     np.random.seed(42)
 
-    # Limit TensorFlow threads
+    #Limiting the trensorFlow threads
     tf.config.threading.set_inter_op_parallelism_threads(1)
     tf.config.threading.set_intra_op_parallelism_threads(1)
 

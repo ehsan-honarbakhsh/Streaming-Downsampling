@@ -24,13 +24,13 @@ def get_wavedec_coeff_lengths(signal_length, wavelet, level, mode='symmetric'):
 
 @keras.saving.register_keras_serializable()
 class DownsampleTransformerBlock(layers.Layer):
-    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.3, retention_rate=0.5, **kwargs):
+    def __init__(self, embed_dim, num_heads, ff_dim, retention_rate ,rate=0.3, **kwargs):
         super(DownsampleTransformerBlock, self).__init__(**kwargs)
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.ff_dim = ff_dim
         self.rate = rate
-        self.retention_rate = retention_rate  # New parameter: fraction of sequence to retain
+        self.retention_rate = retention_rate  
         if not 0 < retention_rate <= 1:
             raise ValueError("retention_rate must be between 0 and 1")
         self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim // num_heads, dropout=0.1)
@@ -127,7 +127,7 @@ class DownsampleTransformerBlock(layers.Layer):
             'num_heads': self.num_heads,
             'ff_dim': self.ff_dim,
             'rate': self.rate,
-            'retention_rate': self.retention_rate,  # Include in serialization
+            'retention_rate': self.retention_rate, 
         })
         return config
 
@@ -175,7 +175,7 @@ class TimeSeriesEmbedding(layers.Layer):
         value_embeddings = value_embeddings + self.bias
         value_embeddings = tf.ensure_shape(value_embeddings, [None, self.maxlen, self.embed_dim])
         print(f"Value embeddings shape: {value_embeddings.shape}")
-        # Add positional encodings
+        #ading positional encodings
         pos_encoding = self.get_sinusoidal_pos_encoding(self.maxlen, self.embed_dim)
         pos_encoding = tf.ensure_shape(pos_encoding, [1, self.maxlen, self.embed_dim])
         output = value_embeddings + pos_encoding
@@ -194,7 +194,7 @@ class TimeSeriesEmbedding(layers.Layer):
         })
         return config
 
-def build_detail_transformer(input_seq_len, embed_dim, num_heads, ff_dim, num_transformer_blocks=3, retention_rate=0.5):
+def build_detail_transformer(input_seq_len, embed_dim, num_heads, ff_dim, num_transformer_blocks, retention_rate):
     inputs = layers.Input(shape=(input_seq_len, 1))
     x = TimeSeriesEmbedding(maxlen=input_seq_len, embed_dim=embed_dim)(inputs)
     print(f"After TimeSeriesEmbedding: {x.shape}")

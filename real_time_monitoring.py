@@ -11,12 +11,12 @@ import time
 KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
 OUTPUT_TOPIC = 'm4-downsampled-topic'
 CONSUMER_GROUP = 'visualization-group'
-EXPECTED_DOWNsampled_LENGTH = 43  # Adjust based on model output
+EXPECTED_DOWNsampled_LENGTH = 43  
 MAX_SERIES = 15
 POLL_TIMEOUT_MS = 100
 UPDATE_INTERVAL_MS = 10
 
-# Buffer for downsampled series
+#buffering for downsampled series
 recent_series = deque(maxlen=MAX_SERIES)
 
 def safe_deserialize_value(x):
@@ -79,11 +79,11 @@ def consume_kafka():
         time.sleep(1)
 
 def run_visualization():
-    # Start Kafka consumer thread
+    #Starting Kafka consumer thread
     print("Starting Kafka consumer thread...")
     threading.Thread(target=consume_kafka, daemon=True).start()
 
-    # Initialize Dash app
+    #Initializing Dash app
     app = Dash(__name__)
     app.layout = html.Div([
         html.H1("Real-Time Downsampled Time Series Visualization"),

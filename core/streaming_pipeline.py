@@ -20,7 +20,6 @@ import psutil
 import time
 import gc
 
-# Set up logging to file only
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -83,7 +82,7 @@ class SerializationSchema(SerializationSchema):
         return Types.STRING()
 
 def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, original_length=150, input_topic='m4-input-topic', output_topic='m4-downsampled-topic'):
-    # Validate input data
+    #validating input data
     logger.info(f"Validating input data: X_train_normalized shape={X_train_normalized.shape}, X_test_normalized shape={X_test_normalized.shape}")
     if np.any(np.isnan(X_train_normalized)) or np.any(np.isinf(X_train_normalized)):
         logger.warning("NaN or Inf detected in X_train_normalized, replacing with 0")
@@ -94,7 +93,7 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
     logger.info(f"Sample X_train_normalized[0]: {X_train_normalized[0][:10]}")
     logger.info(f"Sample X_test_normalized[0]: {X_test_normalized[0][:10]}")
 
-    # Configure Kafka topic with 1 partition
+    #Configuring Kafka topic (The number of partitions will be  changed later)
     admin_client = KafkaAdminClient(bootstrap_servers='localhost:9092')
     topic_list = [
         NewTopic(name=input_topic, num_partitions=1, replication_factor=1),
@@ -109,7 +108,7 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
         admin_client.close()
 
     # Limit dataset size
-    max_series = 20  # Reduced from 50
+    max_series = 50 
     total_series = min(len(X_train_normalized) + len(X_test_normalized), max_series)
     logger.info(f"Streaming {total_series} series to Kafka topic: {input_topic}")
 
@@ -136,7 +135,7 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
     producer.close()
     logger.info(f"Finished streaming {total_series} series to Kafka in {time.time() - start_time:.2f} seconds")
 
-    # Save model
+    #saving the model
     model_path = os.path.join(".", "downsampling_model.keras")
     try:
         model.save(model_path)
@@ -173,7 +172,7 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
 
     data_stream = env.from_source(kafka_source, WatermarkStrategy.no_watermarks(), "Kafka Source")
 
-    # Shared model loading
+    #shared model loading
     def _get_model():
         if not hasattr(_get_model, 'model'):
             logger.info("Loading model in _get_model")
@@ -223,7 +222,7 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
                 logger.error(f"Invalid input: Expected list, got {type(element)}")
                 return json.dumps([])
 
-            # Clean None/NaN
+            # Clening None
             element = [0.0 if x is None or not np.isfinite(x) else float(x) for x in element]
             if not all(isinstance(x, (int, float)) for x in element):
                 logger.error(f"Element contains non-numeric values after cleaning: {element[:10]}")
@@ -252,7 +251,7 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
                 logger.error(f"NaN or Inf detected in downsampled output: {downsampled.numpy().flatten()[:10]}")
                 return json.dumps([])
 
-            # Process in chunks
+            #Processing in chunks
             result = []
             chunk_size = 20
             for i in range(0, downsampled.shape[1], chunk_size):
@@ -269,12 +268,11 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
             serialized = json.dumps(result, allow_nan=False)
             logger.info(f"Completed processing element {process_element.count}")
 
-            # Clear memory
+            # Clearinfg memory
             del downsampled, model_input, series
             gc.collect()
-            tf.keras.backend.clear_session()
+            keras.backend.clear_session()
 
-            # Flush logs
             for handler in logger.handlers:
                 handler.flush()
 
