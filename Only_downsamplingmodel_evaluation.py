@@ -249,3 +249,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+  #python evaluate.py --train_file M4/Daily/Daily-train.csv --test_file M4/Daily/Daily-test.csv  
