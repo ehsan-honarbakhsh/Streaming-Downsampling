@@ -83,7 +83,7 @@ def non_stream_pipeline(args):
     normalize_details = True
     decomposition_mode = 'symmetric'
     batch_size = 32
-    epochs = 10
+    epochs = 20
     learning_rate = 0.0001
 
     #monitoring memory usage
@@ -139,7 +139,7 @@ def non_stream_pipeline(args):
     logger.info("Wavelet Downsampling Model Summary:")
     model.summary(line_length=150)
 
-    early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True, verbose=1)
+    early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
     lr_scheduler = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-7, verbose=1)
 
     logger.info("Training Wavelet Downsampling Model for 5 epochs")

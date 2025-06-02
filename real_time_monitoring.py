@@ -14,7 +14,7 @@ CONSUMER_GROUP = 'visualization-group'
 EXPECTED_DOWNsampled_LENGTH = 43  
 MAX_SERIES = 15
 POLL_TIMEOUT_MS = 100
-UPDATE_INTERVAL_MS = 10
+UPDATE_INTERVAL_MS = 1000
 
 #buffering for downsampled series
 recent_series = deque(maxlen=MAX_SERIES)
