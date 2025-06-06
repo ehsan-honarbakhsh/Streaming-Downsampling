@@ -209,7 +209,7 @@ def evaluate_model(args):
         plt.plot(range(len(downsampled_signal)), downsampled_signal, label='Downsampled Signal', alpha=0.7, marker='o')
         plt.title(f'Downsampled Time Series (Sample {i+1})\n({len(downsampled_signal)} Samples)')
         plt.xlabel('Sample')
-        plt.ylabel('Amplitude')
+        plt.ylabel('Standardised Value')
         plt.legend()
 
         plt.subplot(num_visualize, 3, i * 3 + 2)
@@ -217,7 +217,7 @@ def evaluate_model(args):
         plt.scatter(selected_indices, selected_values, color='blue', label='Downsampled Points', s=50, alpha=0.8)
         plt.title(f'Original Signal with Downsampled Points (Sample {i+1})')
         plt.xlabel('Sample')
-        plt.ylabel('Amplitude')
+        plt.ylabel('Standardised Value')
         plt.legend()
 
         plt.subplot(num_visualize, 3, i * 3 + 3)
@@ -225,7 +225,7 @@ def evaluate_model(args):
         plt.plot(reconstructed_signal, label='Reconstructed Signal', alpha=0.7, color='green', linestyle='--')
         plt.title(f'Original vs Reconstructed Signal (Sample {i+1})')
         plt.xlabel('Sample')
-        plt.ylabel('Amplitude')
+        plt.ylabel('Standardised Value')
         plt.legend()
 
     plt.tight_layout()
@@ -250,5 +250,5 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-  #python evaluate.py --train_file M4/Daily/Daily-train.csv --test_file M4/Daily/Daily-test.csv  
+# How to run the script:
+#python Only_downsamplingmodel_evaluation.py --train_file M4/Daily/Daily-train.csv --test_file M4/Daily/Daily-test.csv  

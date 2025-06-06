@@ -280,27 +280,27 @@ def evaluate_model(args):
         plt.subplot(num_visualize, 2, i * 2 + 1)
         plt.plot(original_signal, label='Original Signal', alpha=0.7, color='orange')
         plt.scatter(selected_indices, selected_values, color='blue', label='Wavelet Points', s=50, alpha=0.8)
-        plt.scatter(uniform_indices, uniform_values, color='green', label='Uniform Points', s=50, alpha=0.8, marker='x')
-        plt.scatter(avg_pool_indices, avg_pool_values, color='red', label='Avg Pool Points', s=50, alpha=0.8, marker='^')
-        plt.scatter(max_pool_indices, max_pool_values, color='purple', label='Max Pool Points', s=50, alpha=0.8, marker='s')
-        plt.scatter(random_indices, random_values, color='cyan', label='Random Points', s=50, alpha=0.8, marker='o')
+      #  plt.scatter(uniform_indices, uniform_values, color='green', label='Uniform Points', s=50, alpha=0.8, marker='x')
+       # plt.scatter(avg_pool_indices, avg_pool_values, color='red', label='Avg Pool Points', s=50, alpha=0.8, marker='^')
+       # plt.scatter(max_pool_indices, max_pool_values, color='purple', label='Max Pool Points', s=50, alpha=0.8, marker='s')
+        #plt.scatter(random_indices, random_values, color='cyan', label='Random Points', s=50, alpha=0.8, marker='o')
         plt.scatter(lttb_indices, lttb_values, color='magenta', label='LTTB Points', s=50, alpha=0.8, marker='*')
         plt.title(f'Original Signal with Downsampled Points (Sample {i+1})')
         plt.xlabel('Sample')
-        plt.ylabel('Amplitude')
+        plt.ylabel('Standardized Value')
         plt.legend()
 
         plt.subplot(num_visualize, 2, i * 2 + 2)
         plt.plot(original_signal, label='Original Signal', alpha=0.7, color='orange')
         plt.plot(wavelet_reconstructed, label='Wavelet Reconstructed', alpha=0.7, color='blue', linestyle='--')
-        plt.plot(uniform_reconstructed, label='Uniform Reconstructed', alpha=0.7, color='green', linestyle='-.')
-        plt.plot(avg_pool_reconstructed, label='Avg Pool Reconstructed', alpha=0.7, color='red', linestyle=':')
-        plt.plot(max_pool_reconstructed, label='Max Pool Reconstructed', alpha=0.7, color='purple', linestyle='-')
-        plt.plot(random_reconstructed, label='Random Reconstructed', alpha=0.7, color='cyan', linestyle='--')
+       # plt.plot(uniform_reconstructed, label='Uniform Reconstructed', alpha=0.7, color='green', linestyle='-.')
+       # plt.plot(avg_pool_reconstructed, label='Avg Pool Reconstructed', alpha=0.7, color='red', linestyle=':')
+       # plt.plot(max_pool_reconstructed, label='Max Pool Reconstructed', alpha=0.7, color='purple', linestyle='-')
+       #plt.plot(random_reconstructed, label='Random Reconstructed', alpha=0.7, color='cyan', linestyle='--')
         plt.plot(lttb_reconstructed, label='LTTB Reconstructed', alpha=0.7, color='magenta', linestyle='-.')
         plt.title(f'Original vs Reconstructed Signals (Sample {i+1})')
         plt.xlabel('Sample')
-        plt.ylabel('Amplitude')
+        plt.ylabel('Standardized Value')
         plt.legend()
 
     plt.tight_layout()
@@ -323,3 +323,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#python LTTB_evaluation_parallel.py --train_file M4/Daily/Daily-train.csv --test_file M4/Daily/Daily-test.csv  
