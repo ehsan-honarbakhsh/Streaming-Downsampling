@@ -10,7 +10,7 @@ from pyflink.common import WatermarkStrategy, Configuration
 from pyflink.common.serialization import DeserializationSchema, SerializationSchema
 from pyflink.java_gateway import get_gateway
 from pyflink.datastream.connectors.kafka import DeliveryGuarantee
-from .downsampling_algorithm import WaveletDownsamplingModel, TimeSeriesEmbedding, DownsampleTransformerBlock, get_wavedec_coeff_lengths, downsampling_loss
+from .downsampling_algorithm2 import WaveletDownsamplingModel, TimeSeriesEmbedding, DownsampleTransformerBlock, get_wavedec_coeff_lengths, downsampling_loss
 import tensorflow as tf
 import keras
 import os

@@ -9,7 +9,7 @@ from scipy.interpolate import interp1d
 import os
 import argparse
 import logging
-from core.downsampling_algorithm import WaveletDownsamplingModel, TimeSeriesEmbedding, DownsampleTransformerBlock, get_wavedec_coeff_lengths, downsampling_loss
+from core.downsampling_algorithm2 import WaveletDownsamplingModel, TimeSeriesEmbedding, DownsampleTransformerBlock, get_wavedec_coeff_lengths, downsampling_loss
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,20 +81,20 @@ def evaluate_model(args):
     )
     logger.info("Model loaded successfully")
 
-    # Generate targets for evaluation
+    #Generating targets for evaluation
     y_train_combined = model.call(X_train_normalized, training=False, return_indices=False)
     y_test_normalized = model.call(X_test_normalized, training=False, return_indices=False)
     logger.info(f"y_train_combined shape: {y_train_combined.shape}")
     logger.info(f"y_test_normalized shape: {y_test_normalized.shape}")
 
-    # Evaluate the model on downsampled outputs
+    #Evaluating the model on downsampled outputs
     logger.info("Evaluating model on downsampled outputs")
     mse_train = mean_squared_error(y_train_combined.numpy(), model.predict(X_train_normalized, verbose=0))
     mse_test = mean_squared_error(y_test_normalized.numpy(), model.predict(X_test_normalized, verbose=0))
     logger.info(f"Train MSE: {mse_train:.6f}")
     logger.info(f"Test MSE: {mse_test:.6f}")
 
-    # Statistical evaluation on reconstructed signals
+    #Statistical evaluation on reconstructed signals
     logger.info("Performing statistical evaluation on reconstructed signals for entire test dataset")
     mse_list, rmse_list, mae_list, r2_list, corr_list, spectral_mse_list = [], [], [], [], [], []
     len_cA, len_cD = get_wavedec_coeff_lengths(original_length, wavelet_name, dwt_level, 'symmetric')
@@ -152,7 +152,7 @@ def evaluate_model(args):
 
             logger.info(f"Sample {start_idx + i + 1}/{num_samples}: MSE={mse:.6f}, RMSE={rmse:.6f}, MAE={mae:.6f}, R2={r2:.6f}, Corr={correlation:.6f}, Spectral MSE={spectral_mse:.6f}")
 
-    # Compute average and standard deviation of metrics
+    #computing average and standard deviation of metrics
     avg_mse = np.mean(mse_list)
     std_mse = np.std(mse_list)
     avg_rmse = np.mean(rmse_list)
@@ -174,7 +174,8 @@ def evaluate_model(args):
     logger.info(f"  Pearson Correlation: Mean={avg_corr:.6f}, Std={std_corr:.6f}")
     logger.info(f"  Spectral MSE: Mean={avg_spectral_mse:.6f}, Std={std_spectral_mse:.6f}")
 
-    # Visualize a subset of results (first 3 samples to avoid clutter)
+     
+    #Visualising a subset of results (for now for interim report only first 3 samples to avoid clutter)
     logger.info("Generating visualization for a subset of samples")
     num_visualize = min(3, num_samples)
     plt.figure(figsize=(18, 10))

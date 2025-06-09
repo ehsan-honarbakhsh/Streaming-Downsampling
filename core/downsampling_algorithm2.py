@@ -5,7 +5,6 @@ import numpy as np
 import pywt
 
 # Calculating the lengths of approximation (cA) and detail (cD) coefficients
-# Ensuring the model knows the expected sizes of wavelet coefficients, which is critical for shaping inputs to the transformer model.
 def get_wavedec_coeff_lengths(signal_length, wavelet, level, mode='symmetric'):
     if isinstance(wavelet, str):
         wavelet = pywt.Wavelet(wavelet)
@@ -23,10 +22,9 @@ def get_wavedec_coeff_lengths(signal_length, wavelet, level, mode='symmetric'):
     print(f"get_wavedec_coeff_lengths: signal_length={signal_length}, wavelet={wavelet.name}, level={level}, mode={mode}, len_cA={len_cA}, len_cD={len_cD}")
     return len_cA, len_cD
 
-# transformer block tailored for downsampling time series data by selecting the most important features based on learned importance scores
 @keras.saving.register_keras_serializable()
 class DownsampleTransformerBlock(layers.Layer):
-    def __init__(self, embed_dim, num_heads, ff_dim, retention_rate ,rate=0.3, **kwargs):
+    def __init__(self, embed_dim, num_heads, ff_dim, retention_rate, rate=0.3, **kwargs):
         super(DownsampleTransformerBlock, self).__init__(**kwargs)
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -47,7 +45,6 @@ class DownsampleTransformerBlock(layers.Layer):
         self.dropout1 = layers.Dropout(rate)
         self.dropout2 = layers.Dropout(rate)
         self.dropout3 = layers.Dropout(rate)
-        self.importance_scorer = layers.Dense(1, activation='sigmoid', kernel_regularizer=regularizers.l2(0.03))
         self.bn = layers.BatchNormalization()
         self.residual_proj = layers.Dense(embed_dim, kernel_regularizer=regularizers.l2(0.03))
 
@@ -67,7 +64,6 @@ class DownsampleTransformerBlock(layers.Layer):
         self.layernorm1.build(input_shape)
         self.layernorm2.build(input_shape)
         self.layernorm3.build(input_shape)
-        self.importance_scorer.build(input_shape)
         self.bn.build(input_shape)
         self.residual_proj.build(input_shape)
         self.built = True
@@ -76,24 +72,45 @@ class DownsampleTransformerBlock(layers.Layer):
         print(f"DownsampleTransformerBlock input shape: {inputs.shape}")
         tf.ensure_shape(inputs, [None, None, self.embed_dim])
         norm1 = self.layernorm1(inputs)
-        attn_output = self.att(norm1, norm1)
+        attn_output, attn_weights = self.att(norm1, norm1, return_attention_scores=True)
         attn_output = self.dropout1(attn_output, training=training)
         out1 = inputs + attn_output
         norm2 = self.layernorm2(out1)
-        local_attn_output = self.local_att(norm2, norm2)
+        local_attn_output, local_attn_weights = self.local_att(norm2, norm2, return_attention_scores=True)
         local_attn_output = self.dropout2(local_attn_output, training=training)
         out2 = out1 + local_attn_output
         norm3 = self.layernorm3(out2)
         ffn_output = self.ffn(norm3)
         ffn_output = self.dropout3(ffn_output, training=training)
         out3 = out2 + ffn_output
-        importance_scores = self.importance_scorer(out3)
-        print(f"Importance scores shape: {importance_scores.shape}")
-        tf.ensure_shape(importance_scores, [None, None, 1])
-        importance_scores_squeezed = tf.squeeze(importance_scores, axis=-1)
-        print(f"Importance scores squeezed shape: {importance_scores_squeezed.shape}")
+        
+        # Derive importance scores from attention weights (hybrid scoring)
+        print(f"Global attention weights shape: {attn_weights.shape}")
+        tf.ensure_shape(attn_weights, [None, self.num_heads, None, None])
+        print(f"Local attention weights shape: {local_attn_weights.shape}")
+        tf.ensure_shape(local_attn_weights, [None, self.num_heads, None, None])
+        
+        # Global attention scores
+        importance_scores_global = tf.reduce_mean(attn_weights, axis=1)  # Average across heads
+        importance_scores_global = tf.reduce_mean(importance_scores_global, axis=1)  # Average across queries
+        tf.ensure_shape(importance_scores_global, [None, None])
+        
+        # Local attention scores
+        importance_scores_local = tf.reduce_mean(local_attn_weights, axis=1)  # Average across heads
+        importance_scores_local = tf.reduce_mean(importance_scores_local, axis=1)  # Average across queries
+        tf.ensure_shape(importance_scores_local, [None, None])
+        
+        # Weighted average for hybrid scoring
+        importance_scores = 0.7 * importance_scores_global + 0.3 * importance_scores_local
+        print(f"Combined importance scores shape: {importance_scores.shape}")
+        tf.ensure_shape(importance_scores, [None, None])
+        
+        # Normalize with softmax
+        importance_scores_squeezed = tf.nn.softmax(importance_scores, axis=-1)
+        print(f"Importance scores normalized shape: {importance_scores_squeezed.shape}")
         tf.ensure_shape(importance_scores_squeezed, [None, None])
-        #dynamic retention rate calculation
+        
+        # Dynamic retention rate calculation
         seq_len = tf.shape(out3)[1]
         reduced_seq_len = tf.cast(tf.round(tf.cast(seq_len, tf.float32) * self.retention_rate), tf.int32)
         reduced_seq_len = tf.maximum(reduced_seq_len, 1)
@@ -177,7 +194,6 @@ class TimeSeriesEmbedding(layers.Layer):
         value_embeddings = value_embeddings + self.bias
         value_embeddings = tf.ensure_shape(value_embeddings, [None, self.maxlen, self.embed_dim])
         print(f"Value embeddings shape: {value_embeddings.shape}")
-        #ading positional encodings
         pos_encoding = self.get_sinusoidal_pos_encoding(self.maxlen, self.embed_dim)
         pos_encoding = tf.ensure_shape(pos_encoding, [1, self.maxlen, self.embed_dim])
         output = value_embeddings + pos_encoding

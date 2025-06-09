@@ -6,7 +6,7 @@ import os
 import argparse
 import psutil
 import logging
-from core.downsampling_algorithm import WaveletDownsamplingModel, TimeSeriesEmbedding, DownsampleTransformerBlock, get_wavedec_coeff_lengths, downsampling_loss, build_detail_transformer
+from core.downsampling_algorithm2 import WaveletDownsamplingModel, TimeSeriesEmbedding, DownsampleTransformerBlock, get_wavedec_coeff_lengths, downsampling_loss, build_detail_transformer
 from core.streaming_pipeline import setup_streaming_pipeline
 
 logging.basicConfig(
@@ -66,9 +66,9 @@ def mixup_data(X, y, alpha=0.2):
 
 def non_stream_pipeline(args):
     embed_dim = 64
-    num_heads = 8
+    num_heads = 4
     ff_dim = 64
-    num_transformer_blocks = 4
+    num_transformer_blocks = 1
     wavelet_name = 'db4'
     dwt_level = 1
     retention_rate = 0.8
