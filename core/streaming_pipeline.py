@@ -96,8 +96,8 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
     #Configuring Kafka topic (The number of partitions will be  changed later)
     admin_client = KafkaAdminClient(bootstrap_servers='localhost:9092')
     topic_list = [
-        NewTopic(name=input_topic, num_partitions=1, replication_factor=1),
-        NewTopic(name=output_topic, num_partitions=1, replication_factor=1)
+        NewTopic(name=input_topic, num_partitions=2, replication_factor=1),
+        NewTopic(name=output_topic, num_partitions=2, replication_factor=1)
     ]
     try:
         admin_client.create_topics(new_topics=topic_list, validate_only=False)
@@ -108,8 +108,9 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
         admin_client.close()
 
     # Limit dataset size
-    max_series = 50 
-    total_series = min(len(X_train_normalized) + len(X_test_normalized), max_series)
+    #max_series = 50 
+    #total_series = min(len(X_train_normalized) + len(X_test_normalized), max_series)
+    total_series = len(X_train_normalized) + len(X_test_normalized)
     logger.info(f"Streaming {total_series} series to Kafka topic: {input_topic}")
 
     # Kafka producer
@@ -124,7 +125,7 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
     )
 
     start_time = time.time()
-    for idx, series in enumerate(np.concatenate([X_train_normalized, X_test_normalized], axis=0)[:max_series]):
+    for idx, series in enumerate(np.concatenate([X_train_normalized, X_test_normalized], axis=0)[:total_series]):
         if np.any(np.isnan(series)) or np.any(np.isinf(series)):
             logger.warning(f"Series {idx} contains NaN/Inf, replacing with 0")
             series = np.where(np.isnan(series) | np.isinf(series), 0, series)
@@ -152,10 +153,10 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
         "file:///Users/ehsanhonarbakhsh/Documents/GitHub/Downsampling/kafka-clients-4.0.0.jar"
     )
     config.set_string("log4j.logger.org.apache.flink", "INFO")
-    config.set_integer("taskmanager.numberOfTaskSlots", 1)
-    config.set_integer("parallelism.default", 1)
+    config.set_integer("taskmanager.numberOfTaskSlots", 2)
+    config.set_integer("parallelism.default", 2)
     env = StreamExecutionEnvironment.get_execution_environment(config)
-    env.set_parallelism(1)
+    env.set_parallelism(2)
     env.get_config().set_auto_watermark_interval(1000)
 
     # Kafka source
@@ -253,6 +254,7 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
 
             #Processing in chunks
             result = []
+            #chunk_size = chunk_size or max(20, downsampled.shape[1] // 4)  # Dynamic default
             chunk_size = 20
             for i in range(0, downsampled.shape[1], chunk_size):
                 chunk = downsampled[:, i:i+chunk_size].numpy().flatten().tolist()

@@ -155,12 +155,12 @@ def stream_pipeline(args):
     embed_dim = 64
     num_heads = 8
     ff_dim = 64
-    num_transformer_blocks = 4
+    num_transformer_blocks = 1
     wavelet_name = 'db4'
     dwt_level = 1
     retention_rate = 0.8
     approx_ds_factor = 2
-    original_length = 150
+    original_length = 200
     len_cA, signal_coeffs_len = get_wavedec_coeff_lengths(original_length, wavelet_name, dwt_level, 'symmetric')
     normalize_details = True
     decomposition_mode = 'symmetric'
