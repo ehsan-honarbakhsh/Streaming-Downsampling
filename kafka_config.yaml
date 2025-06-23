@@ -1,0 +1,13 @@
+bootstrap_servers: "localhost:9092"
+num_partitions: 4
+replication_factor: 2
+batch_size: 32768
+linger_ms: 2
+compression_type: "gzip"
+buffer_memory: 33554432
+parallelism: 4
+chunk_size: 50
+chunk_size: 20
+chunk_size_fraction: 0.1 
+min_chunk_size: 10  
+max_chunk_size: 100

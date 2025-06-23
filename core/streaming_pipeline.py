@@ -1,5 +1,6 @@
 import json
 import numpy as np
+import yaml
 from kafka import KafkaProducer, KafkaAdminClient
 from kafka.admin import NewTopic
 from pyflink.datastream import StreamExecutionEnvironment
@@ -30,6 +31,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class DeserializationSchema(DeserializationSchema):
+    """Custom deserialization schema for Kafka messages."""
     def __init__(self):
         super().__init__(Types.STRING())
         gateway = get_gateway()
@@ -53,6 +55,7 @@ class DeserializationSchema(DeserializationSchema):
         return Types.LIST(Types.FLOAT())
 
 class SerializationSchema(SerializationSchema):
+    """Custom serialization schema for Kafka messages."""
     def __init__(self, topic='m4-downsampled-topic'):
         super().__init__(Types.STRING())
         self.topic = topic
@@ -81,8 +84,57 @@ class SerializationSchema(SerializationSchema):
     def get_produced_type(self):
         return Types.STRING()
 
-def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, original_length=150, input_topic='m4-input-topic', output_topic='m4-downsampled-topic'):
-    #validating input data
+def load_kafka_config(config_path='kafka_config.yaml'):
+    """Load Kafka and Flink configuration from a YAML file.
+
+    Args:
+        config_path (str): Path to the YAML configuration file.
+
+    Returns:
+        dict: Configuration with defaults if file is missing or invalid.
+    """
+    default_config = {
+        'bootstrap_servers': 'localhost:9092',
+        'num_partitions': 2,
+        'replication_factor': 1,
+        'batch_size': 32768,
+        'linger_ms': 2,
+        'compression_type': 'gzip',
+        'buffer_memory': 33554432,
+        'chunk_size': 20,  # Default chunk size for processing downsampled outputs
+        'chunk_size_fraction': 0.1,  # Target fraction of output size for dynamic chunking
+        'min_chunk_size': 10,  # Minimum chunk size to prevent too small chunks
+        'max_chunk_size': 100  # Maximum chunk size to prevent memory issues
+    }
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        if not config:
+            logger.warning(f"Empty config file at {config_path}, using defaults")
+            return default_config
+        logger.info(f"Loaded config from {config_path}: {config}")
+        for key, value in default_config.items():
+            config.setdefault(key, value)
+        return config
+    except FileNotFoundError:
+        logger.warning(f"Config file {config_path} not found, using defaults")
+        return default_config
+    except Exception as e:
+        logger.error(f"Error loading config from {config_path}: {e}")
+        return default_config
+
+def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, original_length=150, input_topic='m4-input-topic', output_topic='m4-downsampled-topic', config_path='kafka_config.yaml'):
+    """Set up a streaming pipeline with Kafka and Flink for time series downsampling.
+
+    Args:
+        X_train_normalized (np.ndarray): Normalized training data.
+        X_test_normalized (np.ndarray): Normalized test data.
+        model (keras.Model): Downsampling model.
+        original_length (int): Expected length of input series.
+        input_topic (str): Kafka input topic name.
+        output_topic (str): Kafka output topic name.
+        config_path (str): Path to configuration YAML file.
+    """
     logger.info(f"Validating input data: X_train_normalized shape={X_train_normalized.shape}, X_test_normalized shape={X_test_normalized.shape}")
     if np.any(np.isnan(X_train_normalized)) or np.any(np.isinf(X_train_normalized)):
         logger.warning("NaN or Inf detected in X_train_normalized, replacing with 0")
@@ -93,39 +145,42 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
     logger.info(f"Sample X_train_normalized[0]: {X_train_normalized[0][:10]}")
     logger.info(f"Sample X_test_normalized[0]: {X_test_normalized[0][:10]}")
 
-    #Configuring Kafka topic (The number of partitions will be  changed later)
-    admin_client = KafkaAdminClient(bootstrap_servers='localhost:9092')
+    config = load_kafka_config(config_path)
+    bootstrap_servers = config['bootstrap_servers']
+    num_partitions = config['num_partitions']
+    replication_factor = config['replication_factor']
+    parallelism = max(1, psutil.cpu_count())
+    chunk_size = config['chunk_size']
+    chunk_size_fraction = config['chunk_size_fraction']
+    min_chunk_size = config['min_chunk_size']
+    max_chunk_size = config['max_chunk_size']
+    logger.info(f"Using parallelism: {parallelism}, chunk_size: {chunk_size}, chunk_size_fraction: {chunk_size_fraction}")
+
+    admin_client = KafkaAdminClient(bootstrap_servers=bootstrap_servers)
     topic_list = [
-        NewTopic(name=input_topic, num_partitions=2, replication_factor=1),
-        NewTopic(name=output_topic, num_partitions=2, replication_factor=1)
+        NewTopic(name=input_topic, num_partitions=num_partitions, replication_factor=replication_factor),
+        NewTopic(name=output_topic, num_partitions=num_partitions, replication_factor=replication_factor)
     ]
     try:
         admin_client.create_topics(new_topics=topic_list, validate_only=False)
-        logger.info(f"Created Kafka topics {input_topic} and {output_topic} with 1 partition")
+        logger.info(f"Created Kafka topics {input_topic} and {output_topic} with {num_partitions} partitions")
     except Exception as e:
         logger.info(f"Topics {input_topic} and/or {output_topic} already exist or error: {e}")
     finally:
         admin_client.close()
 
-    # Limit dataset size
-    #max_series = 50 
-    #total_series = min(len(X_train_normalized) + len(X_test_normalized), max_series)
-    total_series = len(X_train_normalized) + len(X_test_normalized)
-    logger.info(f"Streaming {total_series} series to Kafka topic: {input_topic}")
-
-    # Kafka producer
     producer = KafkaProducer(
-        bootstrap_servers='localhost:9092',
+        bootstrap_servers=bootstrap_servers,
         value_serializer=lambda v: json.dumps(v, allow_nan=True).encode('utf-8'),
         key_serializer=lambda k: str(k).encode('utf-8'),
-        batch_size=32768,
-        linger_ms=2,
-        compression_type='gzip',
-        buffer_memory=33554432
+        batch_size=config['batch_size'],
+        linger_ms=config['linger_ms'],
+        compression_type=config['compression_type'],
+        buffer_memory=config['buffer_memory']
     )
 
     start_time = time.time()
-    for idx, series in enumerate(np.concatenate([X_train_normalized, X_test_normalized], axis=0)[:total_series]):
+    for idx, series in enumerate(np.concatenate([X_train_normalized, X_test_normalized], axis=0)):
         if np.any(np.isnan(series)) or np.any(np.isinf(series)):
             logger.warning(f"Series {idx} contains NaN/Inf, replacing with 0")
             series = np.where(np.isnan(series) | np.isinf(series), 0, series)
@@ -134,9 +189,8 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
             logger.info(f"Sent {idx} series to Kafka")
     producer.flush(timeout=30.0)
     producer.close()
-    logger.info(f"Finished streaming {total_series} series to Kafka in {time.time() - start_time:.2f} seconds")
+    logger.info(f"Finished streaming {len(X_train_normalized) + len(X_test_normalized)} series to Kafka in {time.time() - start_time:.2f} seconds")
 
-    #saving the model
     model_path = os.path.join(".", "downsampling_model.keras")
     try:
         model.save(model_path)
@@ -145,7 +199,6 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
         logger.error(f"Failed to save model: {e}")
         raise
 
-    # Flink configuration
     config = Configuration()
     config.set_string(
         "pipeline.jars",
@@ -153,16 +206,16 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
         "file:///Users/ehsanhonarbakhsh/Documents/GitHub/Downsampling/kafka-clients-4.0.0.jar"
     )
     config.set_string("log4j.logger.org.apache.flink", "INFO")
-    config.set_integer("taskmanager.numberOfTaskSlots", 2)
-    config.set_integer("parallelism.default", 2)
+    config.set_integer("taskmanager.numberOfTaskSlots", parallelism)
+    logger.info(f"Setting Flink taskmanager.numberOfTaskSlots to {parallelism}")
+
     env = StreamExecutionEnvironment.get_execution_environment(config)
-    env.set_parallelism(2)
+    env.set_parallelism(parallelism)
     env.get_config().set_auto_watermark_interval(1000)
 
-    # Kafka source
     deserializer = DeserializationSchema()
     kafka_source = KafkaSource.builder() \
-        .set_bootstrap_servers('localhost:9092') \
+        .set_bootstrap_servers(bootstrap_servers) \
         .set_topics(input_topic) \
         .set_group_id('m4-flink-group') \
         .set_property("auto.offset.reset", "earliest") \
@@ -173,7 +226,6 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
 
     data_stream = env.from_source(kafka_source, WatermarkStrategy.no_watermarks(), "Kafka Source")
 
-    #shared model loading
     def _get_model():
         if not hasattr(_get_model, 'model'):
             logger.info("Loading model in _get_model")
@@ -205,13 +257,13 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
         return _get_model.model
 
     def process_element(element):
+        """Process a single time series element through the downsampling model."""
         if not hasattr(process_element, 'count'):
             process_element.count = 0
         process_element.count += 1
         logger.info(f"Processing element {process_element.count}: Starting")
 
         try:
-            # Log resource usage
             process = psutil.Process()
             mem_usage = process.memory_info().rss / 1024 / 1024
             cpu_percent = psutil.cpu_percent()
@@ -223,7 +275,6 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
                 logger.error(f"Invalid input: Expected list, got {type(element)}")
                 return json.dumps([])
 
-            # Clening None
             element = [0.0 if x is None or not np.isfinite(x) else float(x) for x in element]
             if not all(isinstance(x, (int, float)) for x in element):
                 logger.error(f"Element contains non-numeric values after cleaning: {element[:10]}")
@@ -252,12 +303,17 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
                 logger.error(f"NaN or Inf detected in downsampled output: {downsampled.numpy().flatten()[:10]}")
                 return json.dumps([])
 
-            #Processing in chunks
+            # Determine chunk size dynamically based on output size
+            output_size = downsampled.shape[1]
+            #dynamic_chunk_size = int(max(min_chunk_size, min(max_chunk_size, output_size * chunk_size_fraction)))
+            dynamic_chunk_size = chunk_size
+            #effective_chunk_size = chunk_size if chunk_size > 0 else dynamic_chunk_size
+            effective_chunk_size= dynamic_chunk_size
+            logger.info(f"Using chunk_size={effective_chunk_size} for output_size={output_size}")
+
             result = []
-            #chunk_size = chunk_size or max(20, downsampled.shape[1] // 4)  # Dynamic default
-            chunk_size = 20
-            for i in range(0, downsampled.shape[1], chunk_size):
-                chunk = downsampled[:, i:i+chunk_size].numpy().flatten().tolist()
+            for i in range(0, downsampled.shape[1], effective_chunk_size):
+                chunk = downsampled[:, i:i+effective_chunk_size].numpy().flatten().tolist()
                 result.extend(chunk)
                 del chunk
                 gc.collect()
@@ -270,7 +326,6 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
             serialized = json.dumps(result, allow_nan=False)
             logger.info(f"Completed processing element {process_element.count}")
 
-            # Clearinfg memory
             del downsampled, model_input, series
             gc.collect()
             keras.backend.clear_session()
@@ -296,17 +351,17 @@ def setup_streaming_pipeline(X_train_normalized, X_test_normalized, model, origi
 
     serializer = SerializationSchema(topic=output_topic)
     kafka_sink = KafkaSink.builder() \
-        .set_bootstrap_servers('localhost:9092') \
+        .set_bootstrap_servers(bootstrap_servers) \
         .set_record_serializer(serializer) \
         .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE) \
         .build()
 
     processed_stream.sink_to(kafka_sink)
 
-    logger.info(f"Executing Flink pipeline to process {total_series} elements...")
+    logger.info(f"Executing Flink pipeline to process {len(X_train_normalized) + len(X_test_normalized)} elements with parallelism {parallelism}")
     try:
-        env.execute("M4 Downsampling Pipeline")
-        logger.info(f"Processed approximately {total_series} elements")
+        env.execute("Streaming Downsampling Pipeline")
+        logger.info(f"Processed approximately {len(X_train_normalized) + len(X_test_normalized)} elements")
     except Exception as e:
         logger.error(f"Flink pipeline execution failed: {e}")
         logger.error(traceback.format_exc())

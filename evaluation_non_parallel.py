@@ -124,7 +124,7 @@ def evaluate_model(args):
     original_length = 200
     wavelet_name = 'db4'
     dwt_level = 1
-    target_length = 43  # Approximate target length based on model output
+    target_length = 43  
 
     # Load data
     X_train, X_test = load_m4_daily(args.train_file, args.test_file, max_length=original_length)
@@ -151,12 +151,12 @@ def evaluate_model(args):
     )
     logger.info("Model loaded successfully")
 
-    # Initialize metric storage for all methods
+    #initialising metric storage for all methods
     methods = ['WaveletDownsampling', 'Uniform', 'AveragePooling', 'MaxPooling', 'RandomSampling']
     metrics = {method: {'mse': [], 'rmse': [], 'mae': [], 'r2': [], 'corr': [], 'spectral_mse': []} for method in methods}
     len_cA, len_cD = get_wavedec_coeff_lengths(original_length, wavelet_name, dwt_level, 'symmetric')
 
-    # Process test data in batches
+    #Process test data in batches
     batch_size = 32
     num_samples = X_test_normalized.shape[0]
     logger.info(f"Evaluating {num_samples} test samples across {len(methods)} methods")
@@ -216,7 +216,7 @@ def evaluate_model(args):
             std_val = np.std(metrics[method][metric_name])
             logger.info(f"  {metric_name.upper()}: Mean={mean_val:.6f}, Std={std_val:.6f}")
 
-    # Visualize a subset of results (first 3 samples)
+    #visualising a subset of results (for the interim report first 3 samples)
     logger.info("Generating visualization for a subset of samples")
     num_visualize = min(3, num_samples)
     plt.figure(figsize=(18, 10 * num_visualize))

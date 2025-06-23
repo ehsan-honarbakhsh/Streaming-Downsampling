@@ -15,7 +15,7 @@ try:
     from tsdownsample import LTTBDownsampler
 except ImportError:
     raise ImportError("tsdownsample is not installed. Please install it using: pip install tsdownsample")
-from core.downsampling_algorithm import (
+from core.downsampling_algorithm2 import (
     WaveletDownsamplingModel,
     TimeSeriesEmbedding,
     DownsampleTransformerBlock,
@@ -324,4 +324,5 @@ def main():
 if __name__ == "__main__":
     main()
 
+# How to run the script:
 #python LTTB_evaluation_parallel.py --train_file M4/Daily/Daily-train.csv --test_file M4/Daily/Daily-test.csv  
